@@ -1,0 +1,1504 @@
+*======================================================================*
+* Programa : ZFIR_DOWNLOAD_IMG  /  Transação :
+* Módulo   : FI
+* Descrição: Programa dowload de imagens digitalizadas nos documentos
+*            do cockpit das NF, boletos e Compravantes Pagamentos
+*======================================================================*
+* Autor: CELSO BENTO - SONDAPROCWORK
+* Data : Maio/2011
+*======================================================================*
+REPORT zfir_dowload_imagem MESSAGE-ID zfi.
+
+INCLUDE <icon>.
+
+
+
+*======================================================================*
+* TABELAS
+*======================================================================*
+TABLES: bsak,            " Cont.: índice sec.p/fornecedore
+        zfi_pagamento,   " Tabela armazenar documentos pagamentos
+        skb1,
+        srgbinrel,
+        srrelroles.
+
+*======================================================================*
+*TYPE-POOLS
+*======================================================================*
+*======================================================================*
+*  Componentes para ALV-OO                                             *
+*======================================================================*
+TYPE-POOLS: vrm,
+            sdydo,
+            slis.
+
+*======================================================================*
+* DECLARAÇÂO DE TIPOS
+*======================================================================*
+* Tabela dos Lançamentos Contábeis
+TYPES:
+    BEGIN OF type_t_final,
+        icon(30)           TYPE c,           "Icone
+        bukrs              TYPE bsak-bukrs,  "Empresa
+        hkont              TYPE bsak-hkont,  "Conta do razão
+        lifnr              TYPE lfa1-lifnr,  "Código fornecedor
+        name1              TYPE lfa1-name1,  "Nome forncedor
+        gsber              TYPE bsak-gsber,  "Divisão
+        dmbtr              TYPE bsak-dmbtr,  "Montante
+        augdt(10)          TYPE c,           "Data de compensação
+        sgtxt              TYPE bseg-sgtxt,  "Texto item
+        augbl              TYPE bsak-augbl,  "Numero documento
+        flag               TYPE c,           "Identificador
+        docpag(30)         TYPE c,           "Documento pago
+        zlspr              TYPE bsak-zlspr,  "Chave p/bloqueio pagamento
+        docno              TYPE /COCKPIT/THDR-DOCNO,
+      END OF type_t_final,
+
+
+    BEGIN OF type_t_final_aux,
+        icon(30)           TYPE c,           "Icone
+        bukrs              TYPE bseg-bukrs,  "Empresa
+        hkont              TYPE bseg-hkont,  "Conta do razão
+        lifnr              TYPE lfa1-lifnr,  "Código fornecedor
+        name1              TYPE lfa1-name1,  "Nome forncedor
+        gsber              TYPE bseg-gsber,  "Divisão
+        dmbtr              TYPE bseg-dmbtr,  "Montante
+        augdt(10)          TYPE c,           "Data de compensação
+        sgtxt              TYPE bseg-sgtxt,  "Texto item
+        augbl              TYPE bseg-belnr,  "Numero documento
+        flag               TYPE c,           "Identificador
+        docpag(30)         TYPE c,           "Documento pago
+        zlspr              TYPE bseg-zlspr,  "Chave p/bloqueio pagamento
+        objkey             TYPE srrelroles-objkey,
+        objtype            TYPE srrelroles-objtype,
+        roletype           TYPE srrelroles-roletype,
+        roleid             TYPE roleid,
+        role_a             TYPE roleid,
+        role_b             TYPE roleid,
+        docno              TYPE /COCKPIT/THDR-DOCNO,
+        guid               TYPE /COCKPIT/THDR-INVOICE_GUID,
+      END OF type_t_final_aux,
+
+
+      BEGIN OF type_bsak, " Partidas compensadas
+          bukrs              TYPE bsak-bukrs,
+          lifnr              TYPE bsak-lifnr,
+          augdt              TYPE bsak-augdt,
+          augbl              TYPE bsak-augbl,
+          zuonr              TYPE bsak-zuonr,
+          gjahr              TYPE bsak-gjahr,
+          belnr              TYPE bsak-belnr,
+          buzei              TYPE bsak-buzei,
+          xblnr              TYPE bsak-xblnr,
+          blart              TYPE bsak-blart,
+          shkzg              TYPE bsak-shkzg,
+          gsber              TYPE bsak-gsber,
+          dmbtr              TYPE bsak-dmbtr,
+          sgtxt              TYPE bsak-sgtxt,
+          hkont              TYPE bsak-hkont,
+          zfbdt              TYPE bsak-zfbdt,
+          zbd1t              TYPE bsak-zbd1t,
+          zlsch              TYPE bsak-zlsch,
+          zlspr              TYPE bsak-zlspr,
+          hbkid              TYPE bsak-hbkid,
+          bvtyp              TYPE bsak-bvtyp,
+          xzahl              TYPE bsak-xzahl,
+          kidno              TYPE bsak-kidno,
+      END OF type_bsak,
+
+       BEGIN OF type_bseg, " Tabela de itens
+          bukrs              TYPE bseg-bukrs,
+          belnr              TYPE bseg-belnr,
+          gjahr              TYPE bseg-gjahr,
+          buzei              TYPE bseg-buzei,
+          augdt              TYPE bseg-augdt,
+          augbl              TYPE bseg-augbl,
+          bschl              TYPE bseg-bschl,
+          koart              TYPE bseg-koart,
+          umskz              TYPE bseg-umskz,
+          shkzg              TYPE bseg-shkzg,
+          gsber              TYPE bseg-gsber,
+          qsskz              TYPE bseg-qsskz,
+          dmbtr              TYPE bseg-dmbtr,
+          ktosl              TYPE bseg-ktosl,
+          zuonr              TYPE bseg-zuonr,
+          sgtxt              TYPE bseg-sgtxt,
+          kostl              TYPE bseg-kostl,
+          hkont              TYPE bseg-hkont,
+          lifnr              TYPE bseg-lifnr,
+          zfbdt              TYPE bseg-zfbdt,
+          zbd1t              TYPE bseg-zbd1t,
+          zlsch              TYPE bseg-zlsch,
+          zlspr              TYPE bseg-zlspr,
+          hbkid              TYPE bseg-hbkid,
+          kidno              TYPE bseg-kidno,
+      END OF type_bseg,
+
+      BEGIN OF type_bkpf , " Tabela Doc. contábil
+          bukrs                    TYPE bkpf-bukrs,
+          belnr                    TYPE bkpf-belnr,
+          gjahr                    TYPE bkpf-gjahr,
+          blart                    TYPE bkpf-blart,
+          tcode                    TYPE bkpf-tcode,
+          stblg                    TYPE bkpf-stblg,
+          bktxt                    TYPE bkpf-bktxt,
+      END OF type_bkpf,
+
+
+      BEGIN OF type_lfa1, " Tabela fornecedores
+          lifnr              TYPE lfa1-lifnr,
+          name1              TYPE lfa1-name1,
+          name2              TYPE lfa1-name2,
+          name3              TYPE lfa1-name3,
+          name4              TYPE lfa1-name4,
+          ort01              TYPE lfa1-ort01,
+          pfach              TYPE lfa1-pfach,
+          pstlz              TYPE lfa1-pstlz,
+          regio              TYPE lfa1-regio,
+          adrnr              TYPE lfa1-adrnr,
+          stras              TYPE lfa1-stras,
+          stcd1              TYPE lfa1-stcd1,
+          stcd2              TYPE lfa1-stcd2,
+          vbund              TYPE lfa1-vbund,
+      END OF type_lfa1,
+
+      BEGIN OF type_thdr , " Dados do cabeçalho cockpit
+          guid               TYPE /cockpit/thdr-invoice_guid,
+          docno              TYPE /cockpit/thdr-docno,
+          fi_mm              TYPE /cockpit/thdr-fi_mm_flg,
+          doc_type           TYPE /cockpit/thdr-doc_type,
+          vendor             TYPE /cockpit/thdr-vendor_no,
+          po_number          TYPE /cockpit/thdr-po_number,
+          pstng_date         TYPE /cockpit/thdr-pstng_date,
+          ref_doc_no         TYPE /cockpit/thdr-ref_doc_no,
+          comp_code          TYPE /cockpit/thdr-comp_code,
+          bline_date         TYPE /cockpit/thdr-bline_date,
+          sap_doc_no         TYPE /cockpit/thdr-sap_doc_no,
+          fiscal_year        TYPE /cockpit/thdr-fiscal_year,
+          bus_area           TYPE /cockpit/thdr-bus_area,
+          paymt_ref          TYPE /cockpit/thdr-paymt_ref,
+          ec_arc_id          TYPE /cockpit/thdr-ec_arc_id,
+          ec_dbc_id          TYPE /cockpit/thdr-ec_dbc_id,
+          ec_arc_obj         TYPE /cockpit/thdr-ec_arc_obj,
+      END OF type_thdr,
+
+      BEGIN OF type_docno , " Dados do numero cockpit
+          docno              TYPE /cockpit/thdr-docno,
+      END OF type_docno,
+
+      BEGIN OF type_toa01, " Tabela de ligação 1
+          sap_object         TYPE toa01-sap_object,
+          OBJECT_ID          TYPE toa01-OBJECT_ID,
+          archiv_id          TYPE toa01-archiv_id,
+          arc_doc_id         TYPE toa01-arc_doc_id,
+          ar_object          TYPE toa01-ar_object,
+          ar_date            TYPE toa01-ar_date,
+          del_date           TYPE toa01-del_date,
+          reserve            TYPE toa01-reserve,
+      END OF type_toa01.
+
+*--> Tipo para mensagens de retorno do call transaction
+TYPES: BEGIN OF ty_mess.
+        INCLUDE STRUCTURE bdcmsgcoll.
+TYPES: END OF ty_mess.
+*--> Tipo para Batch
+TYPES: BEGIN OF ty_bdc.
+        INCLUDE STRUCTURE bdcdata.
+TYPES: END OF ty_bdc.
+
+
+*======================================================================*
+* DECLARAÇÃO HEADER LINES DE TIPOS DE TABELA
+*======================================================================*
+DATA: t_final          TYPE TABLE OF type_t_final,          "#EC NEEDED
+      t_finalaux       TYPE TABLE OF type_t_final_aux,      "#EC NEEDED
+      t_bsak           TYPE TABLE OF type_bsak,
+      t_bseg           TYPE TABLE OF type_bseg,
+      t_bsegA          TYPE TABLE OF type_bseg,
+      t_bkpf           TYPE TABLE OF type_bkpf,
+      t_hdr            TYPE TABLE OF type_thdr,
+      t_toa01          TYPE TABLE OF type_toa01,
+      t_toa01_aux      TYPE TABLE OF type_toa01,
+      t_docno          TYPE TABLE OF type_docno,
+      t_lfa1           TYPE TABLE OF type_lfa1,
+      ls_sort          TYPE  slis_sortinfo_alv,
+      gt_sort          TYPE  slis_t_sortinfo_alv,
+      repid            TYPE  sy-repid,
+      t_fieldcat       TYPE slis_t_fieldcat_alv  WITH HEADER LINE,
+      t_listheader     TYPE slis_t_listheader,
+      l_listheader     TYPE slis_listheader,
+      t_layout         TYPE  slis_layout_alv,
+      it_mess         TYPE TABLE OF ty_mess,
+      it_bdc           TYPE TABLE OF ty_bdc.
+
+
+DATA: BEGIN OF t_roles OCCURS 10.
+        INCLUDE STRUCTURE srrelroles.
+DATA: END OF t_roles.
+
+DATA: BEGIN OF t_inrel OCCURS 10.
+        INCLUDE STRUCTURE srgbinrel.
+DATA: END OF t_inrel.
+
+
+
+*======================================================================*
+* WORK AREA
+*======================================================================*
+DATA: w_final          TYPE type_t_final,
+      w_finalaux       TYPE type_t_final_aux,
+      w_bsak           TYPE type_bsak,
+      w_lfa1           TYPE type_lfa1,
+      w_bseg           TYPE type_bseg,
+      w_bsega           TYPE type_bseg,
+      w_bkpf           TYPE type_bkpf,
+      w_hdr            TYPE type_thdr,
+      w_docno          TYPE type_docno,
+      w_toa01          TYPE type_toa01,
+      w_toa01_aux      TYPE type_toa01,
+      w_mess           TYPE ty_mess,
+      wa_bdc           TYPE ty_bdc.
+
+
+*======================================================================*
+* VARIÁVEIS
+*======================================================================*
+DATA: l_fleg           TYPE c,            " Flag de controle
+      l_ano            TYPE bseg-gjahr,   "Ano de vigência
+      l_answer         TYPE c,
+      l_imgok          TYPE c,
+      l_totimg(5)      TYPE c,
+      l_erro(5)        TYPE C,
+      l_mess(50)       TYPE c,
+      l_docno          TYPE /COCKPIT/DDOCNO, "N. DOC COCKPIT
+      l_soma           TYPE c,
+      l_mode           TYPE C,
+      L_TABIX          TYPE I.
+
+
+*======================================================================*
+*  CONSTANTES
+*======================================================================*
+CONSTANTS:
+c_x(01)      TYPE c  VALUE 'X',
+C_CAMIN(42)  TYPE C  VALUE '\\10.209.1.14\data$\financeiro\imgcockpit\'.
+
+
+*======================================================================*
+*  RANGES
+*======================================================================*
+RANGES: r_ano FOR bseg-gjahr.
+
+
+*======================================================================*
+* PARÂMETROS DE SELEÇÃO
+*======================================================================*
+SELECTION-SCREEN BEGIN OF BLOCK 1 WITH FRAME TITLE text-004."#EC *
+SELECTION-SCREEN BEGIN OF BLOCK 2 WITH FRAME TITLE text-005."#EC *
+SELECT-OPTIONS: s_bukrs FOR  skb1-bukrs,    "Empresa
+                s_saknr FOR  bsak-saknr,    "Conta razão
+*               s_blart FOR  bsak-blart,    "Tipo de documento
+                s_augdt FOR  bsak-augdt OBLIGATORY.   "Data Compensação
+
+SELECTION-SCREEN END OF BLOCK 2.
+
+SELECTION-SCREEN END OF BLOCK 1.
+
+
+
+*======================================================================*
+*  SELECTION-SCREEN OUTPUT                                             *
+*======================================================================*
+AT SELECTION-SCREEN OUTPUT.
+*======================================================================*
+*  SELECTION-SCREEN ON VALUE-REQUEST                                   *
+*======================================================================*
+*AT SELECTION-SCREEN ON VALUE-REQUEST FOR <VARIAVEL DE TELA>.
+*======================================================================*
+*  SELECTION-SCREEN                                                    *
+*======================================================================*
+AT SELECTION-SCREEN.
+*======================================================================*
+*  INITIALIZATION                                                      *
+*======================================================================*
+INITIALIZATION.
+*
+*======================================================================*
+*  START-OF-SELECTION                                                  *
+*======================================================================*
+START-OF-SELECTION.
+
+  PERFORM zf_seleciona_dados.
+
+* PERFORM zf_processar_dados.
+  PERFORM zf_processa_dados_tab.
+
+  PERFORM zf_exibir_relatorio.
+
+
+END-OF-SELECTION.
+*&---------------------------------------------------------------------*
+*&      Form  ZF_EXIBIR_RELATORIO
+*&---------------------------------------------------------------------*
+FORM zf_exibir_relatorio.
+
+*-->Perform de configuração do ALV
+  PERFORM print.
+*-->Perform para definir campos do relatório em ALV
+  PERFORM build_grid.
+*-->Ordenar para como será a quebrado do relatório.
+  PERFORM sort_ltextc.
+
+  t_layout-box_fieldname = 'FLAG'.
+*-->Função para exibir relatório em ALV
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+       EXPORTING
+            i_callback_program       = repid
+            i_callback_pf_status_set = 'ZF_STATUS'
+            i_callback_user_command  = 'USER_COMMAND'
+            i_callback_top_of_page   = 'ZF_TOP'
+            is_layout                = t_layout
+            it_fieldcat              = t_fieldcat[]
+            it_sort                  = gt_sort[]
+            i_default                = 'X'
+            i_save                   = 'A'
+       TABLES
+            t_outtab                 = t_final[]
+       EXCEPTIONS
+            program_error            = 1
+            OTHERS                   = 2.
+
+  IF sy-subrc NE 0.
+*-->Limpar tabela final
+    CLEAR t_final.
+  ENDIF.
+
+ENDFORM.                    " ZF_EXIBIR_RELATORIO
+*---------------------------------------------------------------------*
+*       FORM zf_status                                                *
+*---------------------------------------------------------------------*
+FORM zf_status USING rt_extab TYPE slis_t_extab.            "#EC CALLED
+
+*PF-STATUS com botão de enviar email
+  SET PF-STATUS 'STANDARD_FULLSCREEN'.
+
+
+ENDFORM.                           " zf_status
+*----------------------------------------------------------------------*
+************************************************************************
+*  FORM user_command  Double click - implementação do evento           *
+************************************************************************
+FORM user_command  USING ucomm     LIKE sy-ucomm
+                   selfield        TYPE slis_selfield.      "#EC CALLED
+
+
+*-->Limpar estrututa do alv para ebição
+  selfield-refresh  =  'X'.
+*-->Variavel para retornar no relatorio a linha que foi marcada.
+  selfield-row_stable = 'X'.
+
+*-->Variavel de contrôle local
+  DATA: l_flag   TYPE c,
+        L_CONT   TYPE C.
+
+  CASE ucomm.
+
+    WHEN  '&IC1'.
+
+*-->Exibir documento contabil transação FB03
+      IF selfield-fieldname = 'AUGBL'.
+        CLEAR: w_final, l_ano.
+
+*     READ TABLE T_FINAL INTO W_FINAL WITH KEY AUGBL = selfield-value.
+        READ TABLE t_final INTO w_final INDEX selfield-tabindex.
+        IF sy-subrc = 0.
+          l_ano = w_final-augdt+6(04).
+          SET PARAMETER ID 'BLN' FIELD selfield-value.
+          SET PARAMETER ID 'BUK' FIELD w_final-bukrs.
+          SET PARAMETER ID 'GJR' FIELD l_ano.
+
+          CALL TRANSACTION 'FB03' AND SKIP FIRST SCREEN.
+        ENDIF.
+
+      ENDIF.
+
+*-->Exibir transação /cockpit/1 para o documento escolhido.
+    IF selfield-FIELDNAME = 'DOCNO'.
+*-->Verificar a linha marcada
+      READ TABLE T_FINAL INTO W_FINAL INDEX selfield-TABINDEX.
+
+      IF SY-SUBRC = 0.
+
+        IF W_FINAL-DOCNO IS INITIAL.
+*-->Mensagem NÃO EXISTE DOCUMENTO COCKPIT.
+          MESSAGE i000(zfi) WITH text-m01. " Mensagem
+        ELSE.
+*-->Exibir imagem
+          PERFORM ZF_EXIBIR_COCKPIT.
+        ENDIF.
+      ENDIF.
+     ENDIF.
+
+    WHEN  '&DOWLOAD'.
+
+      CLEAR: l_answer, w_final, l_totimg, l_soma, l_erro.
+*-->Verificar se foi marcado pelo menos uma linha na tela
+      READ TABLE t_final INTO w_final WITH KEY flag = 'X'.
+
+      IF sy-subrc <> 0.
+*-->Mensagem quando nãofoi selecionado uma linha
+        MESSAGE i000(zfi) WITH text-002. " Mensagem
+        EXIT.
+      ENDIF.
+
+*-->Verificar se pelo menos uma linha marcada existe imagem
+      LOOP AT t_final INTO W_FINAL WHERE FLAG = 'X'.
+
+        IF W_FINAL-FLAG = 'X' AND
+           W_FINAL-ICON IS INITIAL.
+           L_CONT = 'X'.
+        ELSE.
+           CLEAR: L_CONT.
+           EXIT.
+        ENDIF.
+      ENDLOOP.
+
+      IF L_CONT = 'X'.
+*-->Mensagem quando nãofoi selecionado uma linha
+        MESSAGE i000(zfi) WITH text-003. " Mensagem
+        EXIT.
+
+      ENDIF.
+
+*-->Popup para confirmar o dowload da imagens
+      CALL FUNCTION 'POPUP_TO_DECIDE'
+           EXPORTING
+                textline1         = 'Confirma Extração dos Arquivos !'
+                text_option1      = 'SIM'
+                text_option2      = 'NÃO'
+                icon_text_option1 = 'ICON_OKAY'
+                icon_text_option2 = 'ICON_CANCEL'
+                titel             = 'CONFIRMAR EXTRAÇÃO'
+                start_column      = '25'
+                start_row         = '6'
+                cancel_display    = ' '
+           IMPORTING
+                answer            = l_answer.
+
+
+
+*-->Verificar confirmação de gravação.
+      IF l_answer = '1'.
+**-->Fazer extração dos arquivos para diretorio da rede.
+        PERFORM zf_extracao_arquivos.
+        PERFORM ZF_EXTRACAO_ARQ_COCKPIT.
+
+        IF l_totimg IS INITIAL.
+          l_totimg = '0'.
+        ENDIF.
+        IF L_ERRO IS INITIAL.
+          L_ERRO = '0'.
+        ENDIF.
+
+          CONCATENATE: 'Total arq. gravados: ' l_totimg
+                       ', total arq. erro:' l_erro
+                        INTO l_mess.
+          MESSAGE i000(zfi) WITH l_mess.
+
+      ENDIF.
+  ENDCASE.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  print
+*&---------------------------------------------------------------------*
+FORM print.
+
+
+  repid                      = sy-repid.
+  t_layout-zebra             = 'X'.
+  t_layout-colwidth_optimize = 'X'.
+* T_LAYOUT-no_input          = 'X'.
+
+
+ENDFORM.                    " print
+*&---------------------------------------------------------------------*
+*&      Form  build_grid
+*&---------------------------------------------------------------------*
+FORM build_grid.
+
+
+  REFRESH: t_fieldcat.
+
+  PERFORM m_fieldcat USING
+  'FLAG'     ''             ' ' ' ' ' ' 'X' ' '.
+  PERFORM m_fieldcat USING
+  'BUKRS'    'Empresa'      ' ' ' ' ' ' ' ' 'C'.
+  PERFORM m_fieldcat USING
+  'HKONT'    'Cta do Razão'  ' ' ' ' ' ' ' ' 'C'.
+  PERFORM m_fieldcat USING
+  'LIFNR'    'Cod. Fornec'  ' ' ' ' ' ' ' ' 'C'.
+  PERFORM m_fieldcat USING
+  'NAME1'  'Fornecedor'     ' ' ' ' ' ' ' ' ' '.
+  PERFORM m_fieldcat USING
+  'GSBER'    'Divisão'      ' ' ' ' ' ' ' ' ' '.
+  PERFORM m_fieldcat USING
+  'DMBTR'    'Valor'        'X' ' ' ' ' ' ' ' '.
+  PERFORM m_fieldcat USING
+  'AUGDT' 'Data compensação'  ' ' ' ' ' ' ' ' 'C'.
+  PERFORM m_fieldcat USING
+  'SGTXT'    'Texto.'       ' ' ' ' ' ' ' ' ' '.
+  PERFORM m_fieldcat USING
+  'AUGBL'  'Doc de Compensação' ' ' 'X' 'X' ' ' ' '.
+ PERFORM m_fieldcat USING
+ 'DOCNO'  'N. Cokpit'    'X' 'X' 'X' ' ' ' '.
+  PERFORM m_fieldcat USING
+  'ICON'     'Imagem'       ' ' ' ' ' ' ' ' 'C'.
+
+
+ENDFORM.                    " build_grid
+*&---------------------------------------------------------------------*
+*&      Form  m_fieldcat
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM m_fieldcat USING x_field x_text x_sum x_edit  x_hot x_out x_just.
+
+  t_fieldcat-edit          = x_edit.
+  t_fieldcat-fieldname     = x_field.
+  t_fieldcat-do_sum        = x_sum.
+  t_fieldcat-reptext_ddic  = x_text.
+  t_fieldcat-hotspot       = x_hot.
+  t_fieldcat-no_out        = x_out.
+  t_fieldcat-just          = x_just.
+  APPEND t_fieldcat.
+  CLEAR  t_fieldcat.
+
+ENDFORM.                    " m_fieldcat
+*&---------------------------------------------------------------------*
+*&      Form  sort_ltextc
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM sort_ltextc.
+
+
+
+*  REFRESH gt_sort.
+
+  ls_sort-fieldname = 'BUKRS'.
+*  ls_sort-spos      = 1.
+  ls_sort-up        = 'X'.
+  ls_sort-subtot    = ' '.
+  APPEND ls_sort TO gt_sort.
+
+  ls_sort-fieldname = 'HKONT'.
+*  ls_sort-spos      = 1.
+  ls_sort-up        = 'X'.
+  ls_sort-subtot    = ' '.
+  APPEND ls_sort TO gt_sort.
+
+
+
+
+ENDFORM.                    " sort_ltextc
+*---------------------------------------------------------------------*
+*       FORM zf_top                                                   *
+*---------------------------------------------------------------------*
+*       Cabeçalho do Relatório                                        *
+*---------------------------------------------------------------------*
+FORM zf_top.                                                "#EC CALLED
+
+  DATA: lv_data TYPE string.
+
+* Monta as linhas de cabeçalho
+  REFRESH t_listheader.
+  CLEAR l_listheader.
+
+  l_listheader-typ  = 'S'.
+
+  l_listheader-info = text-006.
+
+  APPEND l_listheader TO t_listheader.
+  CLEAR  l_listheader.
+
+  l_listheader-typ  = 'A'.
+
+  CONCATENATE text-007 sy-uname
+  INTO l_listheader-info SEPARATED BY space.
+
+  APPEND l_listheader TO t_listheader.
+  CLEAR  l_listheader.
+
+  l_listheader-typ  = 'A'.
+
+  CONCATENATE sy-datum+6(2) '/' sy-datum+4(2) '/' sy-datum(4)
+  INTO lv_data.
+
+  CONCATENATE text-008 lv_data
+  INTO l_listheader-info SEPARATED BY space.
+
+  APPEND l_listheader TO t_listheader.
+  CLEAR  l_listheader.
+
+
+*-->Função para exibir logotipo.
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+       EXPORTING
+            it_list_commentary = t_listheader
+            i_logo             = 'SONAE_LOGO'.
+
+ENDFORM.                    " zf_top
+*&---------------------------------------------------------------------*
+*&      Form  ZF_SELECIONA_DADOS
+*&---------------------------------------------------------------------*
+FORM zf_seleciona_dados.
+
+
+clear: t_bsak[], w_bsak, t_lfa1[], w_lfa1, t_docno[], w_docno, t_hdr[],
+       w_hdr, t_toa01_aux[], w_toa01_aux, T_TOA01[], w_TOA01,
+       t_bseg[], w_bseg, R_ANO, R_ANO[].
+
+   IF NOT s_augdt-LOW IS INITIAL.
+    MOVE: 'I'             TO R_ANO-sign,
+          'EQ'            TO R_ANO-option,
+          s_augdt-LOW(04) TO R_ANO-low.
+    APPEND R_ANO.
+  ENDIF.
+
+   IF NOT s_augdt-HIGH IS INITIAL.
+    IF s_augdt-LOW <> s_augdt-HIGH(04).
+     MOVE: 'I'              TO R_ANO-sign,
+           'EQ'             TO R_ANO-option,
+           s_augdt-HIGH(04) TO R_ANO-low.
+    APPEND R_ANO.
+    ENDIF.
+  ENDIF.
+
+
+*-> Seleção de documentos compensados
+  SELECT bukrs lifnr augdt augbl zuonr gjahr belnr
+         buzei xblnr blart shkzg gsber dmbtr sgtxt
+         hkont zfbdt zbd1t zlsch zlspr hbkid bvtyp
+         xzahl kidno
+         FROM bsak
+         INTO TABLE t_bsak
+         WHERE bukrs IN s_bukrs
+           AND augdt IN s_augdt
+           AND ( augbl LIKE '15%' OR  augbl LIKE '17%' OR
+                 augbl LIKE '20%' ).
+
+
+  IF sy-subrc <> 0.
+    MESSAGE e000(zfi) WITH 'Documentos não encontrados para seleção !'.
+  ENDIF.
+
+
+*-->Ordenar tabela interna
+  SORT: t_bsak BY bukrs augbl augdt.
+
+*-> Selecionar os itens dos documentos compensados
+  SELECT bukrs belnr gjahr buzei augdt
+         augbl bschl koart umskz
+         shkzg gsber qsskz dmbtr
+         ktosl zuonr sgtxt kostl hkont
+         lifnr zfbdt zbd1t zlsch
+         zlspr hbkid kidno
+         FROM bseg
+         INTO TABLE t_bseg
+         FOR ALL ENTRIES IN t_bsak
+         WHERE bukrs = t_bsak-bukrs
+         AND belnr = t_bsak-augbl
+         AND gjahr IN R_ANO
+         AND hkont IN s_saknr.
+
+
+  IF sy-subrc <> 0.
+    MESSAGE e000(zfi) WITH 'Documentos não encontrados para seleção !'.
+  ENDIF.
+
+*-> Selecionar Documento Contábil
+  IF NOT t_bseg[] IS INITIAL.
+    SELECT bukrs belnr gjahr
+           blart tcode stblg
+           bktxt
+           FROM bkpf
+           INTO TABLE t_bkpf
+           FOR ALL ENTRIES IN t_bseg
+           WHERE bukrs = t_bseg-bukrs
+           AND belnr = t_bseg-belnr
+           AND gjahr = t_bseg-gjahr
+           AND STBLG = SPACE.
+
+  ENDIF.
+   SORT t_bseg BY BUKRS BELNR GJAHR.
+
+*-> Selecionar os itens dos documentos compensados
+  SELECT bukrs belnr gjahr buzei augdt
+         augbl bschl koart umskz
+         shkzg gsber qsskz dmbtr
+         ktosl zuonr sgtxt kostl hkont
+         lifnr zfbdt zbd1t zlsch
+         zlspr hbkid kidno
+         FROM bseg
+         INTO TABLE t_bsega
+         FOR ALL ENTRIES IN t_bseg
+         WHERE bukrs = t_bseg-bukrs
+         AND belnr = t_bseg-belnr
+         and gjahr = t_bseg-gjahr.
+
+
+
+*deletar da t_bask todos documento diferente da bseg e bkpf.
+   LOOP AT t_bseg INTO W_BSEG.
+     CLEAR: L_TABIX.
+     L_TABIX = SY-TABIX.
+
+     READ TABLE T_BKPF INTO W_BKPF WITH KEY BUKRS = W_BSEG-BUKRS
+                                            BELNR = W_BSEG-BELNR
+                                            GJAHR = W_BSEG-GJAHR.
+
+     IF SY-SUBRC <> 0.
+
+      DELETE   T_BSEG INDEX L_TABIX.
+
+     ENDIF.
+
+   ENDLOOP.
+
+
+*-->Mover o campo kidno para tabela bseg
+   loop at t_bsak into w_bsak where kidno <> space.
+
+     loop at t_bseg into w_bseg where BUKRS = W_BSAK-BUKRS
+                               and BELNR = W_BSAK-AUGBL
+                               and GJAHR = W_BSAK-GJAHR.
+        if sy-subrc = 0.
+         move: w_bsak-kidno to  w_bseg-kidno.
+         MODIFY t_bseg FROM w_bseg INDEX sy-tabix.
+        endif.
+      endloop.
+
+
+
+   endloop.
+
+
+   LOOP AT t_bsak INTO W_BSAK.
+     CLEAR: L_TABIX.
+     L_TABIX = SY-TABIX.
+
+
+     READ TABLE T_BSEG INTO W_BSEG WITH KEY BUKRS = W_BSAK-BUKRS
+                                            BELNR = W_BSAK-AUGBL
+                                            GJAHR = W_BSAK-GJAHR.
+
+     IF SY-SUBRC <> 0.
+        DELETE T_BSAK INDEX L_TABIX.
+      ENDIF.
+
+   ENDLOOP.
+
+*-->Excluir da tabela interna todos registro quando Código igual
+*   débito
+*  DELETE t_bsak WHERE shkzg = 'S'.
+
+ IF NOT t_bsega[] IS INITIAL.
+
+*-> Selecionar Fornecedores
+    SELECT lifnr name1 name2 name3
+           name4 ort01 pfach pstlz
+           regio adrnr stras stcd1
+           stcd2 vbund
+           FROM lfa1
+           INTO TABLE t_lfa1
+           FOR ALL ENTRIES IN t_bsega
+           WHERE lifnr = t_bsega-lifnr.
+  ENDIF.
+
+
+*-->Mover docno para tabela auxiliar
+  LOOP AT t_bseg INTO w_bseg.
+
+    IF NOT w_bseg-kidno IS INITIAL.
+
+      MOVE: w_bseg-kidno TO w_docno-docno.
+      APPEND w_docno TO t_docno.
+      CLEAR: w_docno.
+
+    ENDIF.
+
+  ENDLOOP.
+
+*-->Selecionar dados cabeçalho quando for do cockpit.
+  SELECT invoice_guid docno fi_mm_flg doc_type vendor_no
+         po_number pstng_date ref_doc_no comp_code bline_date
+         sap_doc_no fiscal_year bus_area paymt_ref ec_arc_id
+         ec_dbc_id ec_arc_obj
+         FROM /cockpit/thdr
+         INTO TABLE t_hdr
+         FOR ALL ENTRIES IN t_docno
+         WHERE docno = t_docno-docno.
+
+
+  IF sy-subrc = 0.
+
+*-->Ler sequencialmente tabela cockpit
+    LOOP AT t_hdr INTO w_hdr.
+*-->Mover dados para tabela auxiliar
+       MOVE: '/COCKPIT/B'     TO  w_toa01_aux-sap_object,
+             w_hdr-guid       TO  w_toa01_aux-object_id ,
+             w_hdr-ec_arc_id  TO  w_toa01_aux-archiv_id,
+             w_hdr-ec_dbc_id  TO  w_toa01_aux-arc_doc_id,
+             w_hdr-ec_arc_obj TO  w_toa01_aux-ar_object.
+      APPEND w_toa01_aux TO t_toa01_aux.
+    ENDLOOP.
+
+
+*-->Selecionar dados da tabela grava imagem no SAP ArchiveLink
+    SELECT SAP_OBJECT OBJECT_ID ARCHIV_ID ARC_DOC_ID
+           AR_OBJECT AR_DATE DEL_DATE RESERVE
+           FROM TOA01
+           INTO TABLE  T_TOA01
+           FOR ALL ENTRIES IN T_TOA01_AUX
+           WHERE SAP_OBJECT = T_TOA01_AUX-SAP_OBJECT
+            AND  OBJECT_ID  = T_TOA01_AUX-OBJECT_ID
+            AND  ARCHIV_ID  = T_TOA01_AUX-ARCHIV_ID
+            AND  AR_OBJECT  = 'ZEIC_TIF'.
+
+
+
+  ENDIF.
+
+
+  ENDFORM.                    " ZF_SELECIONA_DADOS
+*&---------------------------------------------------------------------*
+*&      Form  ZF_PROCESSAR_DADOS
+*&---------------------------------------------------------------------*
+FORM zf_processar_dados.
+
+
+**-->Leitura sequencial para gerar tabela final
+*  LOOP AT t_bsak INTO w_bsak.
+*
+*    clear: l_docno.
+*
+**-->Movar campos para tabela final
+*    MOVE: w_bsak-augbl   TO w_final-augbl,
+*          w_bsak-bukrs   TO w_final-bukrs,
+*          w_bsak-gsber   TO w_final-gsber,
+*          w_bsak-zlspr   TO w_final-zlspr,
+*          w_bsak-sgtxt   TO w_final-sgtxt,
+*          w_bsak-dmbtr   TO w_final-dmbtr,
+*          w_bsak-kidno   to w_final-docno,
+*          w_bsak-kidno   to l_docno.
+*
+**-->Ler conta razão referente a banco da tabela bseg.
+*    READ TABLE T_BSEG INTO W_BSEG WITH KEY  BUKRS = w_bsak-bukrs
+*                                            BELNR = w_bsak-augbl
+*                                            GJAHR = w_bsak-augdt(4).
+*    if sy-subrc = 0.
+*     move:  w_bseg-hkont   TO w_final-hkont.
+*    endif.
+*
+**-->Converter data de compensação
+*    CALL FUNCTION 'CONVERSION_EXIT_PDATE_OUTPUT'
+*         EXPORTING
+*              input  = w_bsak-augdt
+*         IMPORTING
+*              output = w_final-augdt.
+*
+**--> Ler  na tabela nome do fornecedor.
+*    READ TABLE t_lfa1 INTO w_lfa1 WITH KEY lifnr = w_bsak-lifnr.
+*
+*    IF sy-subrc = 0.
+**-->Definir código do fornrcedor
+*      w_final-lifnr = w_bsak-lifnr.
+**-->Definir nome do fornecedor.
+*      w_final-name1 = w_lfa1-name1.
+*    ENDIF.
+*
+**-->Verificar se numero cockpit existe.
+*    IF L_DOCNO IS INITIAL.
+**-->Verificar se existe imagem no documento transação fb03.
+*    PERFORM zf_verificar_imagem.
+*    ELSE.
+**-->Verificar se existe imagem documento cockpit.
+*    PERFORM zf_imagem_cockpit.
+*    ENDIF.
+*
+*    IF l_imgok = 'X'.
+*      MOVE icon_okay TO w_final-icon.
+*    ENDIF.
+**-->Mover registro do work area para tabela
+*    APPEND w_final TO t_final.
+*    CLEAR: w_final, w_bsak.
+*
+*
+*  ENDLOOP.
+
+ENDFORM.                    " ZF_PROCESSAR_DADOS
+*&---------------------------------------------------------------------*
+*&      Form  ZF_EXTRACAO_ARQUIVOS
+*&---------------------------------------------------------------------*
+FORM zf_extracao_arquivos.
+
+*-->Declaração de tabelas variaveis e header line.
+  DATA: fol_id       TYPE soodk,
+        obj_id       TYPE soodk,
+        obj_disp     LIKE sood2,
+        loio_object  TYPE sdokobject,
+        phio_object  TYPE sdokobject,
+        v_name(255)  TYPE c,
+        v_ext(03)    TYPE c,
+        l_augbl      TYPE augbl,
+        l_bukrs      TYPE bukrs.
+
+
+  DATA: l_filename LIKE rlgrap-filename,
+        t_objhead LIKE soli  OCCURS 0 WITH HEADER LINE,
+        t_objcont LIKE soli  OCCURS 0 WITH HEADER LINE,
+        objpara LIKE selc  OCCURS 0 WITH HEADER LINE,
+        objparb LIKE soop1 OCCURS 0 WITH HEADER LINE,
+        context LIKE sdokpropty OCCURS 0 WITH HEADER LINE.
+
+
+  DATA: file_info TYPE sdokfilaci OCCURS 0 WITH HEADER LINE,
+        data_bin TYPE STANDARD TABLE OF sdokcntbin,
+        wa_data_bin TYPE sdokcntbin,
+        data_txt LIKE sdokcntasc OCCURS 0 WITH HEADER LINE,
+        path_and_file  TYPE string.  " Caminho do arquivo
+
+*-->Função Busca pasta dos arquivo
+  CALL FUNCTION 'SO_FOLDER_ROOT_ID_GET'
+       EXPORTING
+            region    = 'B'
+       IMPORTING
+            folder_id = fol_id
+       EXCEPTIONS
+            OTHERS    = 1.
+
+*-->Ler sequecialmente a tabela interna final marcada com x pelo usuario
+  LOOP AT t_final INTO w_final WHERE flag = 'X'
+                                AND  DOCNO IS INITIAL.
+
+*-->Limpara variavel e tabelas internas.
+    CLEAR: t_inrel[], t_inrel, t_roles[], t_roles.
+
+
+   READ TABLE t_finalaux INTO w_finalaux WITH KEY bukrs = w_final-bukrs
+                                                  hkont = w_final-hkont
+                                                  lifnr = w_final-lifnr
+                                                  augbl = w_final-augbl.
+
+
+    IF sy-subrc = 0.
+
+*-->Selecionar dados tabela (Object Relationship Service: ligações
+*                            binárias genéricas)
+      SELECT * FROM srgbinrel
+        INTO TABLE t_inrel
+        WHERE role_a = w_finalaux-roleid.
+
+      IF sy-subrc = 0.
+*-->Selecionar dados tabela (Object Relationship Service : funçs.)
+        SELECT * FROM srrelroles
+         INTO TABLE t_roles
+         FOR ALL ENTRIES IN t_inrel
+         WHERE roleid = t_inrel-role_b.
+
+
+        IF sy-subrc <> 0.
+          EXIT.
+        ENDIF.
+
+      ENDIF.
+
+      IF NOT t_roles[] IS INITIAL.
+
+        LOOP AT  t_roles.
+
+          CLEAR: t_objcont[], t_objhead[].
+
+* Monta chave do arquivo
+          obj_id-objtp = t_roles-objkey+17(3).
+          obj_id-objyr = t_roles-objkey+20(2).
+          obj_id-objno = t_roles-objkey+22(12).
+
+* Busca link,lógioco(LOIO), para pegar o conteúdo do arquivo
+          CALL FUNCTION 'SO_OBJECT_READ'
+            EXPORTING
+              folder_id                        = fol_id
+              object_id                        = obj_id
+*        OWNER                            = sy-uname
+            IMPORTING
+              object_hd_display                = obj_disp
+            TABLES
+              objcont                          = t_objcont
+              objhead                          = t_objhead
+            EXCEPTIONS
+              active_user_not_exist            = 1
+              communication_failure            = 2
+              component_not_available          = 3
+              folder_not_exist                 = 4
+              folder_no_authorization          = 5
+              object_not_exist                 = 6
+              object_no_authorization          = 7
+              operation_no_authorization       = 8
+              owner_not_exist                  = 9
+              parameter_error                  = 10
+              substitute_not_active            = 11
+              substitute_not_defined           = 12
+              system_failure                   = 13
+              x_error                          = 14
+              OTHERS                           = 15.
+*
+          IF sy-subrc NE 0.
+*      retorno = 'Falha ao ler o arquivo!'.
+            EXIT.
+          ENDIF.
+
+
+          READ TABLE t_objhead INDEX 1.
+          SPLIT t_objhead AT '.' INTO v_name v_ext.
+          TRANSLATE v_ext TO LOWER CASE.
+
+          IF v_ext NE 'txt'.
+
+
+            READ TABLE t_objcont INDEX 1.
+
+            CLEAR: loio_object, phio_object, context[], data_bin[].
+
+            MOVE: t_objcont-line+17(10) TO loio_object-class,
+                  t_objcont-line+27(32) TO loio_object-objid.
+
+*   Através do link lógico pega o link físico(PHIO)
+            CALL FUNCTION 'SO_LOIO_PHIO_GET'
+                 EXPORTING
+                      loio_object        = loio_object
+                 IMPORTING
+                      phio_object        = phio_object
+                 TABLES
+                      context            = context
+                 EXCEPTIONS
+                      kpro_inconsistency = 1
+                      x_error            = 2
+                      OTHERS             = 3.
+
+            IF sy-subrc <> 0.
+*        retorno = 'Falha ao ler o arquivo!'.
+              EXIT.
+            ENDIF.
+
+*   Lê o conteúdo do arquivo no formato em que foi gravado
+            CALL FUNCTION 'SDOK_PHIO_LOAD_CONTENT'
+                 EXPORTING
+                      object_id           = phio_object
+                      client              = sy-mandt
+                      as_is_mode          = 'X'
+*                      raw_mode            = 'X'
+                      text_as_stream      = 'X'
+                 TABLES
+                      file_access_info    = file_info
+                      file_content_ascii  = data_txt
+                      file_content_binary = data_bin
+                 EXCEPTIONS
+                      not_existing        = 1
+                      not_authorized      = 2
+                      no_content          = 3
+                      bad_storage_type    = 4
+                      OTHERS              = 5.
+
+          ENDIF.
+
+
+*-->Limpar variavel.
+          CLEAR: l_filename.
+
+          IF l_augbl IS INITIAL AND l_bukrs IS INITIAL.
+
+            CLEAR: l_bukrs, l_augbl.
+
+            ADD 1 TO l_soma.
+
+*-->Montar caminho onde sera gravado as imagens no diretório.
+*           CONCATENATE: '\\10.209.1.14\data$\financeiro\imgcockpit\'
+            CONCATENATE: C_CAMIN w_final-bukrs '_' w_final-augbl '_'
+            w_final-augdt+6(4) '_' l_soma '.' v_ext  INTO l_filename.
+
+*-->Mover empresa e documento pagamento para variavél.
+            MOVE: w_final-bukrs TO l_bukrs,
+                  w_final-augbl TO l_augbl.
+
+          ELSE.
+            IF l_bukrs = w_final-bukrs AND
+               l_augbl = w_final-augbl.
+
+              ADD 1 TO l_soma.
+*-->Montar caminho onde sera gravado as imagens no diretório.
+*           CONCATENATE: '\\10.209.1.14\data$\financeiro\imgcockpit\'
+            CONCATENATE: C_CAMIN w_final-bukrs '_' w_final-augbl '_'
+            w_final-augdt+6(4) '_' l_soma '.' v_ext  INTO l_filename.
+
+            ELSE.
+              CLEAR: l_soma, l_bukrs, l_augbl.
+              ADD 1 TO l_soma.
+*-->Montar caminho onde sera gravado as imagens no diretório.
+*           CONCATENATE: '\\10.209.1.14\data$\financeiro\imgcockpit\'
+            CONCATENATE: C_CAMIN w_final-bukrs '_' w_final-augbl '_'
+            w_final-augdt+6(4) '_' l_soma '.' v_ext  INTO l_filename.
+
+*-->Mover empresa e documento pagamento para variavél.
+              MOVE: w_final-bukrs TO l_bukrs,
+                    w_final-augbl TO l_augbl.
+
+            ENDIF.
+          ENDIF.
+
+*-->Função para gravar as imagens no diretório, porque a rede é windows
+          CALL FUNCTION 'WS_DOWNLOAD'
+               EXPORTING
+                    bin_filesize            = file_info-file_size
+                    filename                = l_filename
+                    filetype                = 'BIN'
+               TABLES
+                    data_tab                = data_bin
+               EXCEPTIONS
+                    file_open_error         = 1
+                    file_write_error        = 2
+                    invalid_filesize        = 3
+                    invalid_table_width     = 4
+                    invalid_type            = 5
+                    no_batch                = 6
+                    unknown_error           = 7
+                    gui_refuse_filetransfer = 8
+                    OTHERS                  = 9.
+
+
+*-->Verificar se imagem foi gravada no diretorio.
+          IF sy-subrc = 0.
+            ADD 1 TO l_totimg.
+          ELSE.
+            ADD 1 TO l_erro.
+          ENDIF.
+
+        ENDLOOP.
+      ENDIF.
+    ENDIF.
+
+  ENDLOOP.
+
+
+ENDFORM.                    " ZF_EXTRACAO_ARQUIVOS
+*&---------------------------------------------------------------------*
+*&      Form  ZF_VERIFICAR_IMAGEM
+*&---------------------------------------------------------------------*
+FORM zf_verificar_imagem.
+
+  DATA: l_obj      TYPE swo_typeid,
+        w_roles    TYPE srrelroles,
+        w_inrel    TYPE srgbinrel.
+
+
+  CLEAR: l_imgok.
+*Concatenar campo chave
+*  CONCATENATE w_bsak-bukrs w_bsak-augbl w_bsak-gjahr INTO l_obj.
+  CONCATENATE w_bseg-bukrs w_bseg-belnr w_bseg-gjahr INTO l_obj.
+
+*-->Ler dados tabela (Object Relationship Service : funçs.)
+  SELECT SINGLE * FROM srrelroles
+    INTO w_roles
+   WHERE objkey = l_obj
+     AND roletype = 'APPLOBJ'.
+
+  IF sy-subrc = 0.
+*-->Ler dados tabela de (ligações binárias genéricas)
+    SELECT SINGLE * FROM srgbinrel
+      INTO w_inrel
+    WHERE role_a =  w_roles-roleid.
+
+    IF sy-subrc = 0.
+
+*-->Movendo x para a variavel signfica que existe imagem anexada.
+      MOVE: 'X' TO l_imgok.
+
+*-->Imagem existe mover dados para tabela t_final auxiliar.
+      MOVE-CORRESPONDING w_bseg TO w_finalaux.
+
+      MOVE: w_roles-objkey   TO  w_finalaux-objkey,
+            w_roles-objtype  TO  w_finalaux-objtype,
+            w_roles-roletype TO  w_finalaux-roletype,
+            w_roles-roleid   TO  w_finalaux-roleid,
+            w_bseg-belnr     TO  W_finalaux-augbl,
+            w_final-lifnr    TO  w_finalaux-lifnr.
+
+
+      APPEND w_finalaux TO t_finalaux.
+      CLEAR: w_finalaux.
+
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " ZF_VERIFICAR_IMAGEM
+*&---------------------------------------------------------------------*
+*&      Form  zf_imagem_cockpit
+*&---------------------------------------------------------------------*
+form zf_imagem_cockpit.
+
+*-->Limpar variavel que indica que imagem existe para documento.
+   CLEAR: l_imgok.
+*-->Ler tabela cabeçalho do cockpit
+   READ TABLE t_hdr INTO W_HDR WITH KEY DOCNO = L_DOCNO.
+
+   IF SY-SUBRC = 0.
+*-->Ler a tabela de imagens para verificar se existe imagem para doc.
+     READ TABLE T_TOA01 INTO W_TOA01 WITH KEY OBJECT_ID = W_HDR-GUID.
+
+     IF SY-SUBRC = 0.
+*-->Movendo x para a variavel signfica que existe imagem anexada.
+      MOVE: 'X' TO l_imgok.
+     ENDIF.
+   ENDIF.
+
+
+endform.                    " zf_imagem_cockpit
+*&---------------------------------------------------------------------*
+*&      Form  ZF_EXTRACAO_ARQ_COCKPIT
+*&---------------------------------------------------------------------*
+form ZF_EXTRACAO_ARQ_COCKPIT.
+
+
+  DATA: l_filename LIKE rlgrap-filename,
+        v_name(255)  TYPE c,
+        v_ext(03)    TYPE c,
+        l_augbl      TYPE augbl,
+        l_bukrs      TYPE bukrs.
+
+
+*-->Ler sequecialmente a tabela interna final marcada com x pelo usuario
+  LOOP AT t_final INTO w_final WHERE flag = 'X'
+                                AND NOT DOCNO IS INITIAL.
+
+
+
+*-->Ler tabela cabeçalho do cockpit
+   READ TABLE t_hdr INTO W_HDR WITH KEY DOCNO = w_final-DOCNO.
+
+   IF SY-SUBRC = 0.
+
+      SORT T_TOA01 BY SAP_OBJECT OBJECT_ID ARCHIV_ID AR_DATE ASCENDING.
+
+*-->Ler a tabela de imagens para verificar se existe imagem para doc.
+      LOOP AT  T_TOA01 INTO W_TOA01 WHERE OBJECT_ID = W_HDR-GUID.
+        CLEAR l_filename.
+
+**-->Montar caminho onde sera gravado as imagens no diretório.
+          IF l_augbl IS INITIAL AND l_bukrs IS INITIAL.
+
+            CLEAR: l_bukrs, l_augbl, l_soma.
+            ADD 1 TO l_soma.
+
+*-->Montar caminho onde sera gravado as imagens no diretório.
+            CONCATENATE: C_CAMIN w_final-bukrs '_' w_final-augbl '_'
+                         w_final-augdt+6(4) '_' l_soma '.'
+                         W_TOA01-RESERVE  INTO l_filename.
+
+*-->Mover empresa e documento pagamento para variavél.
+            MOVE: w_final-bukrs TO l_bukrs,
+                  w_final-augbl TO l_augbl.
+
+          ELSE.
+            IF l_bukrs = w_final-bukrs AND
+               l_augbl = w_final-augbl.
+
+
+            CONTINUE.
+
+            ELSE.
+              CLEAR: l_soma, l_bukrs, l_augbl.
+              ADD 1 TO l_soma.
+*-->Montar caminho onde sera gravado as imagens no diretório.
+
+            CONCATENATE: C_CAMIN w_final-bukrs '_' w_final-augbl '_'
+            w_final-augdt+6(4) '_' l_soma '.'
+            W_TOA01-RESERVE  INTO l_filename.
+
+*-->Mover empresa e documento pagamento para variavél.
+              MOVE: w_final-bukrs TO l_bukrs,
+                    w_final-augbl TO l_augbl.
+
+            ENDIF.
+         ENDIF.
+*-->Declaração de variaveis locais
+data: l_dtype  like  TOADV-DOC_TYPE,
+      l_dtpath like  SAPB-SAPPFAD.
+
+*-->Mover dados para variaveis locais.
+        move: W_TOA01-RESERVE(3) to l_dtype,
+              l_filename to l_dtpath.
+
+*-->Função para inserir registos no diretorio de registros gravados
+*   pelo cockpit utilizando tabelas archavin.
+         CALL FUNCTION 'ARCHIVOBJECT_GET_DT_VIA_TABLE'
+          EXPORTING
+            ARCHIV_ID               = W_TOA01-archiv_id
+            ARCHIV_DOC_ID           = W_TOA01-arc_doc_id
+            DOC_TYPE                = l_dtype
+            DTPATH                  = l_dtpath
+*            CONVERT                 = ' '
+          EXCEPTIONS
+            ERROR_APPLICATION       = 1
+            OTHERS                  = 2.
+
+*-->Verificar se imagem foi gravada no diretorio.
+          IF sy-subrc = 0.
+            ADD 1 TO l_totimg.
+          ELSE.
+            ADD 1 TO l_erro.
+          ENDIF.
+
+         CLEAR: W_TOA01.
+
+
+
+      ENDLOOP.
+
+   ENDIF.
+
+  ENDLOOP.
+
+
+endform.                    " ZF_EXTRACAO_ARQ_COCKPIT
+*&---------------------------------------------------------------------*
+*&      Form  ZF_EXIBIR_COCKPIT
+*&---------------------------------------------------------------------*
+form ZF_EXIBIR_COCKPIT.
+
+
+
+     PERFORM zf_bdc USING:
+      'X'  '/COCKPIT/DISPLAY_ALV'    '1000',
+      ' '  'BDC_OKCODE'  '=ONLI',
+      ' '  'SEL_DCNO-LOW'  W_FINAL-DOCNO,
+      ' '  'P_PROCES'  'X'.
+
+
+    l_mode = 'E'.
+
+    CALL TRANSACTION '/COCKPIT/1' USING it_bdc
+                            MODE l_mode
+                            UPDATE 'S'
+                            MESSAGES INTO it_mess.
+
+
+    REFRESH it_mess.
+    REFRESH it_bdc.
+
+
+
+endform.                    " ZF_EXIBIR_COCKPIT
+*&---------------------------------------------------------------------*
+*&      Form  zf_bdc
+*&---------------------------------------------------------------------*
+form zf_bdc using dynbegin name value.
+
+  CLEAR wa_bdc.
+
+  IF dynbegin = 'X'.
+
+    CLEAR wa_bdc.
+
+    MOVE: 'X'   TO wa_bdc-dynbegin,
+          name  TO wa_bdc-program,
+          value TO wa_bdc-dynpro.
+
+    APPEND wa_bdc TO it_bdc.
+
+  ELSE.
+
+    MOVE: name  TO wa_bdc-fnam,
+          value TO wa_bdc-fval.
+
+    APPEND wa_bdc TO it_bdc.
+
+  ENDIF.
+
+endform.                    " zf_bdc
+*&---------------------------------------------------------------------*
+*&      Form  zf_processa_dados_tab
+*&---------------------------------------------------------------------*
+form zf_processa_dados_tab.
+
+
+
+*-->Leitura sequencial para gerar tabela final
+  LOOP AT t_bseg INTO w_bseg where augbl = space.
+
+    clear: l_docno.
+
+*-->Movar campos para tabela final
+    MOVE: w_bseg-belnr   TO w_final-augbl,
+*         w_bseg-augbl   TO w_final-augbl,
+          w_bseg-bukrs   TO w_final-bukrs,
+          w_bseg-gsber   TO w_final-gsber,
+          w_bseg-zlspr   TO w_final-zlspr,
+          w_bseg-sgtxt   TO w_final-sgtxt,
+          w_bseg-dmbtr   TO w_final-dmbtr,
+          w_bseg-kidno   to w_final-docno,
+          w_bseg-kidno   to l_docno,
+          w_bseg-hkont   TO w_final-hkont.
+
+**-->Ler conta razão referente a banco da tabela bseg.
+    READ TABLE T_BSEGA INTO W_BSEGA WITH KEY  BUKRS = w_bseg-bukrs
+                                              BELNR = w_bseg-belnr
+                                              GJAHR = w_bseg-GJAHR
+                                              KOART = 'K'.
+
+    if sy-subrc = 0.
+
+*-->Converter data de compensação
+    CALL FUNCTION 'CONVERSION_EXIT_PDATE_OUTPUT'
+         EXPORTING
+              input  = w_bsega-augdt
+         IMPORTING
+              output = w_final-augdt.
+
+
+*--> Ler  na tabela nome do fornecedor.
+    READ TABLE t_lfa1 INTO w_lfa1 WITH KEY lifnr = W_BSEGA-lifnr.
+
+    IF sy-subrc = 0.
+*-->Definir código do fornrcedor
+      w_final-lifnr = W_BSEGA-lifnr.
+*-->Definir nome do fornecedor.
+      w_final-name1 = w_lfa1-name1.
+    ENDIF.
+
+    ENDIF.
+
+
+*-->Verificar se numero cockpit existe.
+    IF L_DOCNO IS INITIAL.
+*-->Verificar se existe imagem no documento transação fb03.
+    PERFORM zf_verificar_imagem.
+    ELSE.
+*-->Verificar se existe imagem documento cockpit.
+    PERFORM zf_imagem_cockpit.
+    ENDIF.
+
+    IF l_imgok = 'X'.
+      MOVE icon_okay TO w_final-icon.
+    ENDIF.
+*-->Mover registro do work area para tabela
+    APPEND w_final TO t_final.
+    CLEAR: w_final, w_bseg, w_bsega.
+
+
+  ENDLOOP.
+
+
+
+
+
+endform.                    " zf_processa_dados_tab

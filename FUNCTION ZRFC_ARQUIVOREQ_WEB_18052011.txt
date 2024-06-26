@@ -1,0 +1,373 @@
+FUNCTION ZRFC_ARQUIVOREQ_WEB.
+*"----------------------------------------------------------------------
+*"*"Interface local:
+*"  IMPORTING
+*"     VALUE(PATH_AND_FILE) LIKE  RLGRAP-FILENAME OPTIONAL
+*"     VALUE(COMANDO) LIKE  IOOPPREQ-KZ_MARK OPTIONAL
+*"     VALUE(CODIGO) LIKE  SOOD-OBJNO OPTIONAL
+*"     VALUE(REQUISICAO) LIKE  EBAN-BANFN OPTIONAL
+*"     VALUE(TITULO) LIKE  SOOD4-OBJDES OPTIONAL
+*"     VALUE(TAMANHO) LIKE  SOOD1-OBJLEN OPTIONAL
+*"  EXPORTING
+*"     VALUE(RETORNO) LIKE  BAPIRET2-MESSAGE
+*"  TABLES
+*"      LIST_ARQ STRUCTURE  ZRFC_LISTARQREC_WEB OPTIONAL
+*"----------------------------------------------------------------------
+
+
+*  *******************************************  *
+*  *** WRITE - Escrever(Incluir doc anexo) ***  *
+*  *******************************************  *
+  IF COMANDO = 'W'.
+
+* Busca pasta dos arquivos
+    CALL FUNCTION 'SO_FOLDER_ROOT_ID_GET'
+      EXPORTING
+        region    = 'B'
+      IMPORTING
+        folder_id = folder_id
+      EXCEPTIONS
+        others    = 1.
+
+    IF sy-subrc NE 0.
+      retorno = 'Pasta para arquivo não encontrada!'.
+      EXIT.
+    ENDIF.
+
+    TRANSLATE PATH_AND_FILE TO LOWER CASE.
+    SPLIT PATH_AND_FILE AT '.' INTO v_aux v_exten.
+    TRANSLATE v_exten TO UPPER CASE.
+
+* Lê arquivo em questão no UNIX
+    OPEN DATASET path_and_file FOR INPUT IN BINARY MODE.
+    IF sy-subrc EQ 0.
+      DO.
+        READ DATASET path_and_file INTO lt_wide_content.
+        IF sy-subrc EQ 0 OR sy-index EQ 1.
+          APPEND lt_wide_content.
+        ELSE.
+          EXIT.
+        ENDIF.
+      ENDDO.
+
+      CLOSE DATASET path_and_file.
+
+      READ TABLE lt_wide_content INDEX 1.
+
+* Converte conteúdo para tabela de 255 caractéres por linha.
+      CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+       EXPORTING
+         BUFFER                = lt_wide_content
+       TABLES
+         BINARY_TAB            = t_objcont.
+    ENDIF.
+
+* Calcula o tamanho do arquivo
+    DESCRIBE TABLE t_objcont LINES v_lines.
+    READ TABLE     t_objcont INDEX v_lines.
+    TAMANHO = ( 255 * ( v_lines - 1 ) ) + STRLEN( t_objcont ).
+
+    wa_obj_hd-objlen   = TAMANHO.
+    wa_obj_hd-file_ext = v_exten.
+    wa_obj_hd-objdes   = TITULO.
+    wa_obj_hd-objpri   = '1'.
+
+* Insere arquivo no SAP
+
+*SH0620000000042011
+
+
+    CALL FUNCTION 'SO_OBJECT_INSERT'
+      EXPORTING
+        FOLDER_ID                        = folder_id
+        OBJECT_HD_CHANGE                 = wa_obj_hd
+        OBJECT_TYPE                      = 'EXT'
+        OWNER                            = sy-uname
+      IMPORTING
+        OBJECT_ID                        = obj_id
+      TABLES
+        OBJCONT                          = t_objcont
+        OBJHEAD                          = t_objhead
+      EXCEPTIONS
+        ACTIVE_USER_NOT_EXIST            = 1
+        COMMUNICATION_FAILURE            = 2
+        COMPONENT_NOT_AVAILABLE          = 3
+        DL_NAME_EXIST                    = 4
+        FOLDER_NOT_EXIST                 = 5
+        FOLDER_NO_AUTHORIZATION          = 6
+        OBJECT_TYPE_NOT_EXIST            = 7
+        OPERATION_NO_AUTHORIZATION       = 8
+        OWNER_NOT_EXIST                  = 9
+        PARAMETER_ERROR                  = 10
+        SUBSTITUTE_NOT_ACTIVE            = 11
+        SUBSTITUTE_NOT_DEFINED           = 12
+        SYSTEM_FAILURE                   = 13
+        X_ERROR                          = 14
+        OTHERS                           = 15.
+
+  IF sy-subrc ne 0.
+      retorno = 'Não foi possível criar o arquivo!'.
+      EXIT.
+  ELSE.
+      retorno = 'Arquivo criado!'.
+      DELETE DATASET path_and_file.
+  ENDIF.
+
+  s_borident-objkey  = requisicao.
+  s_borident-objtype = 'BUS2105'.
+
+  attachment-objtype = 'MESSAGE'.
+  CONCATENATE folder_id obj_id INTO attachment-objkey.
+
+* Monta Link: Arquivo criado com a requisição
+  CALL FUNCTION 'BINARY_RELATION_CREATE'
+    EXPORTING
+      obj_rolea    = s_borident
+      obj_roleb    = attachment
+      relationtype = 'ATTA'
+    EXCEPTIONS
+      others       = 1.
+
+  IF sy-subrc NE 0.
+    retorno = 'Não foi possível relacionar o arquivo à requisição!'.
+    EXIT.
+  ENDIF.
+
+  COMMIT WORK.
+
+*  *******************************************  *
+*  *** LIST - Listar(Lista de docs anexos) ***  *
+*  *******************************************  *
+  ELSEIF COMANDO = 'L'.
+
+* Busca arquivos anexo à Requisição específica
+    SELECT instid_b
+      FROM SRGBTBREL
+      INTO TABLE t_inst_b
+      WHERE reltype   EQ 'ATTA'
+        AND typeid_a  EQ 'BUS2105'
+        AND instid_a  EQ requisicao.
+
+    IF sy-subrc NE 0.
+      retorno = 'Não há anexos na requisição!'.
+      EXIT.
+    ENDIF.
+
+    LOOP AT t_inst_b.
+      t_inst_b-objtp = t_inst_b-instid_b+17(3).
+      t_inst_b-objyr = t_inst_b-instid_b+20(2).
+      t_inst_b-objno = t_inst_b-instid_b+22(12).
+      MODIFY t_inst_b.
+    ENDLOOP.
+
+* Busca características de cada arquivos encontrado
+    SELECT objno objdes ownnam crdat crtim file_ext objlen
+      FROM sood
+      INTO TABLE t_sood
+      FOR ALL ENTRIES IN t_inst_b
+      WHERE objtp EQ t_inst_b-objtp
+        AND objyr EQ t_inst_b-objyr
+        AND objno EQ t_inst_b-objno.
+
+    SORT t_sood BY crdat ASCENDING.
+
+* Monta lista de anexos à requisição
+    LOOP AT t_sood.
+      LIST_ARQ-CODIGO    = t_sood-objno.
+      LIST_ARQ-TITULO    = t_sood-objdes.
+      LIST_ARQ-CRIADOR   = t_sood-ownnam.
+      LIST_ARQ-DATA      = t_sood-crdat.
+      LIST_ARQ-HORA      = t_sood-crtim.
+      LIST_ARQ-EXTENSAO  = t_sood-file_ext.
+      LIST_ARQ-TAMANHO   = t_sood-objlen.
+      APPEND LIST_ARQ.
+    ENDLOOP.
+
+*  *******************************************  *
+*  **** READ - Ler(Visualisar doc anexo) *****  *
+*  *******************************************  *
+  ELSEIF COMANDO = 'R'.
+
+* Busca pasta dos arquivo
+    CALL FUNCTION 'SO_FOLDER_ROOT_ID_GET'
+      EXPORTING
+        region    = 'B'
+      IMPORTING
+        folder_id = fol_id
+      EXCEPTIONS
+        others    = 1.
+
+
+* SO_DOCUMENTS_MANAGER, FUNCÇÃO
+
+* Monta chave do arquivo
+    obj_id-objtp = 'EXT'.
+    obj_id-objyr = '32'.
+    obj_id-objno = codigo.
+
+* Busca link,lógioco(LOIO), para pegar o conteúdo do arquivo
+    CALL FUNCTION 'SO_OBJECT_READ'
+      EXPORTING
+        FOLDER_ID                        = fol_id
+        OBJECT_ID                        = obj_id
+        OWNER                            = sy-uname
+      IMPORTING
+        OBJECT_HD_DISPLAY                = object_hd
+      TABLES
+        OBJCONT                          = t_objcont
+        OBJHEAD                          = t_objhead
+      EXCEPTIONS
+        ACTIVE_USER_NOT_EXIST            = 1
+        COMMUNICATION_FAILURE            = 2
+        COMPONENT_NOT_AVAILABLE          = 3
+        FOLDER_NOT_EXIST                 = 4
+        FOLDER_NO_AUTHORIZATION          = 5
+        OBJECT_NOT_EXIST                 = 6
+        OBJECT_NO_AUTHORIZATION          = 7
+        OPERATION_NO_AUTHORIZATION       = 8
+        OWNER_NOT_EXIST                  = 9
+        PARAMETER_ERROR                  = 10
+        SUBSTITUTE_NOT_ACTIVE            = 11
+        SUBSTITUTE_NOT_DEFINED           = 12
+        SYSTEM_FAILURE                   = 13
+        X_ERROR                          = 14
+        OTHERS                           = 15.
+
+    IF sy-subrc NE 0.
+      retorno = 'Falha ao ler o arquivo!'.
+      EXIT.
+    ENDIF.
+
+    READ TABLE t_objhead INDEX 1.
+    SPLIT t_objhead AT '.' INTO v_name v_ext.
+    TRANSLATE v_ext TO LOWER CASE.
+
+    IF v_ext NE 'txt'.
+
+      READ TABLE t_objcont INDEX 1.
+
+      MOVE: t_objcont-line+17(10) TO loio_object-class,
+            t_objcont-line+27(32) TO loio_object-objid.
+
+*   Através do link lógico pega o link físico(PHIO)
+      CALL FUNCTION 'SO_LOIO_PHIO_GET'
+        EXPORTING
+          loio_object        = loio_object
+        IMPORTING
+          phio_object        = phio_object
+        TABLES
+          context            = context
+        EXCEPTIONS
+          kpro_inconsistency = 1
+          x_error            = 2
+          OTHERS             = 3.
+
+      IF sy-subrc <> 0.
+        retorno = 'Falha ao ler o arquivo!'.
+        EXIT.
+      ENDIF.
+
+*caminho rede:
+*imgcockpit (\\10.209.1.14\data$\financeiro\imgcockpit\)
+\\10.209.1.14\data$\FINANCEIRO\IMGCOCKPIT
+
+*   Lê o conteúdo do arquivo no formato em que foi gravado
+      CALL FUNCTION 'SDOK_PHIO_LOAD_CONTENT'
+        EXPORTING
+          OBJECT_ID                 = phio_object
+          CLIENT                    = SY-MANDT
+          AS_IS_MODE                = 'X'
+          RAW_MODE                  = 'X'
+          TEXT_AS_STREAM            = 'X'
+        TABLES
+          FILE_ACCESS_INFO          = file_info
+          FILE_CONTENT_ASCII        = data_txt
+          FILE_CONTENT_BINARY       = data_bin
+        EXCEPTIONS
+          NOT_EXISTING              = 1
+          NOT_AUTHORIZED            = 2
+          NO_CONTENT                = 3
+          BAD_STORAGE_TYPE          = 4
+          OTHERS                    = 5.
+
+    ENDIF.
+
+    TRANSLATE PATH_AND_FILE TO LOWER CASE.
+
+* Grava seu conteúdo no diretório UNIX
+    OPEN DATASET PATH_AND_FILE FOR OUTPUT IN BINARY MODE.
+
+    IF sy-subrc NE 0.
+      retorno = 'Não foi possível criar o arquivo!'.
+      EXIT.
+    ENDIF.
+
+    IF v_ext NE 'txt'.
+      LOOP AT data_bin.
+        TRANSFER data_bin TO PATH_AND_FILE.
+      ENDLOOP.
+    ELSE.
+      LOOP AT t_objcont.
+        TRANSFER t_objcont TO PATH_AND_FILE.
+      ENDLOOP.
+    ENDIF.
+
+    CLOSE DATASET PATH_AND_FILE.
+
+    IF sy-subrc NE 0.
+      retorno = 'Falha ao criar o arquivo!'.
+      EXIT.
+    ENDIF.
+
+*  *******************************************  *
+*  *** DELETE - Deletar(Apagar doc anexo) ****  *
+*  *******************************************  *
+  ELSEIF COMANDO = 'D'.
+
+* Verifíca arquivos anexos à requisição
+    SELECT SINGLE instid_b FROM srgbtbrel
+      INTO v_inst_b
+      WHERE reltype   EQ 'ATTA'
+        AND typeid_a  EQ 'BUS2105'
+        AND instid_a  EQ requisicao.
+
+    attachment-objtype = 'MESSAGE'.
+    attachment-objkey  = v_inst_b.
+
+    s_borident-objkey  = requisicao.
+    s_borident-objtype = 'BUS2105'.
+
+* Deleta relacionamento: Arquivo à requisição
+    CALL FUNCTION 'BINARY_RELATION_DELETE'
+      EXPORTING
+        obj_rolea    = s_borident
+        obj_roleb    = attachment
+        relationtype = 'ATTA'
+      EXCEPTIONS
+        others       = 1.
+
+    IF sy-subrc NE 0.
+      retorno = 'Falha ao apagar relacionamento com a requisição!'.
+      EXIT.
+    ENDIF.
+
+    fol_id = attachment-objkey(17).
+    obj_id = attachment-objkey+17(17).
+
+* Deleta arquivo do SAP
+    call function 'SO_OBJECT_DELETE_IN_VB'
+         in update task
+         exporting
+              folder_id = fol_id
+              object_id = obj_id.
+
+    IF sy-subrc NE 0.
+      retorno = 'Falha ao apagar arquivo!'.
+      EXIT.
+    ENDIF.
+
+    COMMIT WORK.
+
+  ENDIF.
+
+ENDFUNCTION.
